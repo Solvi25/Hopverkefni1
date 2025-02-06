@@ -17,50 +17,54 @@ print('Connecting to DB...')
 cnxn = pyodbc.connect(conn_str, autocommit=False)  # autocommit=False for faster uploads
 cursor = cnxn.cursor()
 
-# Path to your CSV file
-csv_file_path = "HEI07202_20250204-175510.csv"  # Update if needed
+csv_file_path = "HEI07202_20250204-175510.csv"
 
 # Read CSV into a Pandas DataFrame
 df = pd.read_csv(csv_file_path, delimiter=";", quotechar='"')
 
-# Convert "." to NULL for missing values
-df.replace(".", None, inplace=True)
+df.replace({".": 0.0, "": None}, inplace=True)
 
-# Define SQL table name
+dtype_mapping = {
+    "Alkóhóllítrar": "string",
+    "Ár": "int64",
+    "Alls": "float64",
+    "Bjór": "float64",
+    "Létt vín": "float64",
+    "Sterk vín": "float64",
+}
+
+# Convert numeric columns properly
+for col, dtype in dtype_mapping.items():
+    if col in df.columns:
+        if dtype != "string":  # Convert only numeric columns
+            df[col] = pd.to_numeric(df[col], errors="coerce").astype(dtype)
+
+
 table_name = "alcohol"
 
 # Drop table if it already exists
 cursor.execute(f"IF OBJECT_ID('{table_name}', 'U') IS NOT NULL DROP TABLE {table_name};")
 
-# Dynamically create table based on CSV columns
-column_types = {
-    "FLOAT": ["int64", "float64"],
-    "VARCHAR(255)": ["object"]
-}
-
-# Determine SQL column types
-sql_columns = []
-for col in df.columns:
-    dtype = df[col].dtype.name
-    sql_type = next((sql for sql, dtypes in column_types.items() if dtype in dtypes), "VARCHAR(255)")
-    sql_columns.append(f"[{col}] {sql_type}")
+sql_columns = [
+    "[Alkóhóllítrar] VARCHAR(255)",
+    "[Ár] INT",
+    "[Alls] FLOAT",
+    "[Bjór] FLOAT",
+    "[Létt vín] FLOAT",
+    "[Sterk vín] FLOAT"
+]
 
 # Create table query
-sql_create_table = f"""
-CREATE TABLE {table_name} (
-    {', '.join(sql_columns)}
-);
-"""
+sql_create_table = f"CREATE TABLE {table_name} ({', '.join(sql_columns)});"
 cursor.execute(sql_create_table)
-print(f"Table '{table_name}' created successfully.")
 
 # Insert Data into SQL Table
 print(f"Inserting data into {table_name}...")
-insert_query = f"INSERT INTO {table_name} ({', '.join([f'[{col}]' for col in df.columns])}) VALUES ({', '.join(['?' for _ in df.columns])})"
+insert_query = f"INSERT INTO {table_name} ({', '.join([f'[{col}]' for col in dtype_mapping.keys()])}) VALUES ({', '.join(['?' for _ in dtype_mapping.keys()])})"
 
 # Insert data row by row
 for _, row in df.iterrows():
-    cursor.execute(insert_query, tuple(row))
+    cursor.execute(insert_query, tuple(row[col] for col in dtype_mapping.keys()))
 
 cnxn.commit()  # Commit transaction
 
@@ -68,4 +72,3 @@ cnxn.commit()  # Commit transaction
 print('Closing connections...')
 cursor.close()
 cnxn.close()
-print('Data successfully inserted into "alcohol" table!')

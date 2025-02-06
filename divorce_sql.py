@@ -17,14 +17,20 @@ print('Connecting to DB...')
 cnxn = pyodbc.connect(conn_str, autocommit=False)  # autocommit=False for faster uploads
 cursor = cnxn.cursor()
 
-# Path to your second CSV file
-csv_file_path = "SOG02101_20250205-181807.csv"  # Update if needed
+csv_file_path = "SOG02101_20250205-181807.csv"
 
 # Read CSV into a Pandas DataFrame
 df = pd.read_csv(csv_file_path, delimiter=";", quotechar='"')
 
-# Convert "." to NULL for missing values
-df.replace(".", None, inplace=True)
+
+dtype_mapping = {
+    "Ár": "int64",
+    "Lögskilnaðir alls": "float64",
+}
+
+# Convert columns to specified data types
+for col, dtype in dtype_mapping.items():
+    df[col] = df[col].astype(dtype, errors="ignore") 
 
 # Define SQL table name
 table_name = "divorce"
@@ -32,27 +38,15 @@ table_name = "divorce"
 # Drop table if it already exists
 cursor.execute(f"IF OBJECT_ID('{table_name}', 'U') IS NOT NULL DROP TABLE {table_name};")
 
-# Dynamically create table based on CSV columns
-column_types = {
-    "FLOAT": ["int64", "float64"],
-    "VARCHAR(255)": ["object"]
-}
-
-# Determine SQL column types
-sql_columns = []
-for col in df.columns:
-    dtype = df[col].dtype.name
-    sql_type = next((sql for sql, dtypes in column_types.items() if dtype in dtypes), "VARCHAR(255)")
-    sql_columns.append(f"[{col}] {sql_type}")
+# Manually define SQL column types
+sql_columns = [
+    "[Ár] INT", 
+    "[Lögskilnaðir alls] FLOAT"
+]
 
 # Create table query
-sql_create_table = f"""
-CREATE TABLE {table_name} (
-    {', '.join(sql_columns)}
-);
-"""
+sql_create_table = f"CREATE TABLE {table_name} ({', '.join(sql_columns)});"
 cursor.execute(sql_create_table)
-print(f"Table '{table_name}' created successfully.")
 
 # Insert Data into SQL Table
 print(f"Inserting data into {table_name}...")
@@ -62,10 +56,9 @@ insert_query = f"INSERT INTO {table_name} ({', '.join([f'[{col}]' for col in df.
 for _, row in df.iterrows():
     cursor.execute(insert_query, tuple(row))
 
-cnxn.commit()  # Commit transaction
+cnxn.commit() 
 
 # DISCONNECT
 print('Closing connections...')
 cursor.close()
 cnxn.close()
-print('Data successfully inserted into "divorce" table!')
